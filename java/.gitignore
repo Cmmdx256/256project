@@ -7,3 +7,12 @@
 # Ignore Gradle build output directory
 build
 bin
+
+# But allow TeaVM generated outputs (needed for Vercel deployment)
+!build/generated/
+!build/generated/teavm/
+!build/generated/teavm/js/
+!build/generated/teavm/js/*.js
+!build/generated/teavm/wasm-gc/
+!build/generated/teavm/wasm-gc/*.wasm
+!build/generated/teavm/wasm-gc/*.js
