@@ -2,7 +2,7 @@ name: Release
 on: [workflow_dispatch] # Manual trigger
 jobs:
   build:
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: gradle/actions/wrapper-validation@v5
