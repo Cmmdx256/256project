@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100" height="100">
+  <!-- Background -->
+  <rect width="100" height="100" rx="12" fill="#0d1117"/>
+
+  <!-- Circuit lines - corners -->
+  <g stroke="#1e3a2f" stroke-width="1" fill="none">
+    <path d="M5,20 H15 V10"/>
+    <path d="M5,30 H12"/>
+    <circle cx="12" cy="30" r="1.5" fill="#1e3a2f"/>
+
+    <path d="M95,20 H85 V10"/>
+    <path d="M95,30 H88"/>
+    <circle cx="88" cy="30" r="1.5" fill="#1e3a2f"/>
+
+    <path d="M5,80 H15 V90"/>
+    <path d="M5,70 H12"/>
+    <circle cx="12" cy="70" r="1.5" fill="#1e3a2f"/>
+
+    <path d="M95,80 H85 V90"/>
+    <path d="M95,70 H88"/>
+    <circle cx="88" cy="70" r="1.5" fill="#1e3a2f"/>
+  </g>
+
+  <!-- Glow effect for "256" -->
+  <filter id="glow">
+    <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
+    <feMerge>
+      <feMergeNode in="coloredBlur"/>
+      <feMergeNode in="SourceGraphic"/>
+    </feMerge>
+  </filter>
+
+  <!-- "256" pixel-style text -->
+  <text
+    x="50"
+    y="52"
+    font-family="'Courier New', monospace"
+    font-size="36"
+    font-weight="bold"
+    fill="#00ff88"
+    text-anchor="middle"
+    dominant-baseline="middle"
+    filter="url(#glow)"
+    letter-spacing="-1"
+  >256</text>
+
+  <!-- "project" smaller text -->
+  <text
+    x="50"
+    y="72"
+    font-family="'Courier New', monospace"
+    font-size="11"
+    fill="#6e7681"
+    text-anchor="middle"
+    dominant-baseline="middle"
+    letter-spacing="2"
+  >project</text>
+</svg>
