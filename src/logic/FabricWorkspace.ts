@@ -306,12 +306,16 @@ processResources {
 }
 
 tasks.withType(JavaCompile).configureEach {
+\tit.options.encoding = "UTF-8"
 \tit.options.release = ${cfg.javaVersion}
 }
 
 java {
 \twithSourcesJar()
 ${javaCompat}
+\ttoolchain {
+\t\tlanguageVersion = JavaLanguageVersion.of(${cfg.javaVersion})
+\t}
 }
 
 jar {
@@ -332,6 +336,10 @@ function tplSettingsGradle(): string {
 \t\tmavenCentral()
 \t\tgradlePluginPortal()
 \t}
+}
+
+plugins {
+\tid 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
 }
 `;
 }
