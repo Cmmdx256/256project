@@ -7,13 +7,16 @@ import {
     CodeOutlined,
     LoadingOutlined,
     CheckCircleOutlined,
+    RocketOutlined,
 } from "@ant-design/icons";
 import { useState, useRef } from "react";
 import {
     downloadCurrentFile,
     downloadEntireJarAsZip,
     downloadGradleProject,
+    downloadFabricWorkspace,
     type ProjectGenStage,
+    type FabricWorkspaceStage,
 } from "../logic/DownloadSource";
 import type { ZipProgressCallback } from "../logic/DownloadSource";
 import { useObservable } from "../utils/UseObservable";
@@ -56,6 +59,10 @@ export const DownloadButton = () => {
     // Source download progress
     const [srcProgress, setSrcProgress] = useState<SourceProgress | null>(null);
     const srcAbortRef = useRef<AbortController | null>(null);
+
+    // Fabric workspace progress
+    const [fabProgress, setFabProgress] = useState<FabricWorkspaceStage | null>(null);
+    const fabAbortRef = useRef<AbortController | null>(null);
 
     // ── Handlers ─────────────────────────────────────────────────────────────
 
@@ -132,6 +139,30 @@ export const DownloadButton = () => {
         }
     };
 
+    const handleDownloadFabricWorkspace = async () => {
+        if (!jar) { messageApi.warning("No Minecraft version loaded yet."); return; }
+
+        const controller = new AbortController();
+        fabAbortRef.current = controller;
+        setFabProgress({ stage: 'fabric-meta', label: 'Starting…' });
+
+        try {
+            await downloadFabricWorkspace((prog: FabricWorkspaceStage) => {
+                setFabProgress(prog);
+            }, controller.signal);
+            messageApi.success("Fabric workspace downloaded!");
+        } catch (err) {
+            if ((err as DOMException).name === "AbortError") {
+                messageApi.info("Download cancelled.");
+            } else {
+                messageApi.error("Failed: " + (err instanceof Error ? err.message : String(err)));
+            }
+        } finally {
+            setFabProgress(null);
+            fabAbortRef.current = null;
+        }
+    };
+
     // ── Menu ──────────────────────────────────────────────────────────────────
 
     const menuItems: MenuProps["items"] = [
@@ -164,6 +195,21 @@ export const DownloadButton = () => {
             icon: <CodeOutlined />,
             disabled: !jar,
             onClick: handleDownloadSources,
+        },
+        {
+            key: "fabric",
+            label: (
+                <span>
+                    <strong>⚙ Generate Fabric Workspace</strong>
+                    <br />
+                    <span style={{ fontSize: "11px", color: "#888" }}>
+                        Runnable mod dev environment · ./gradlew runClient
+                    </span>
+                </span>
+            ),
+            icon: <RocketOutlined />,
+            disabled: !jar,
+            onClick: handleDownloadFabricWorkspace,
         },
     ];
 
@@ -289,6 +335,48 @@ export const DownloadButton = () => {
                             {srcProgress?.label}
                         </div>
                     )}
+                </Flex>
+            </Modal>
+
+            {/* Fabric Workspace Progress Modal */}
+            <Modal
+                title="⚙ Generating Fabric Workspace…"
+                open={fabProgress !== null}
+                closable={false}
+                keyboard={false}
+                mask={{ closable: false }}
+                width={420}
+                footer={
+                    <Button color="danger" variant="outlined" onClick={() => fabAbortRef.current?.abort()}>
+                        Cancel
+                    </Button>
+                }
+            >
+                <Flex vertical gap={16} style={{ paddingTop: 8 }}>
+                    <Steps
+                        size="small"
+                        current={fabProgress?.stage === 'fabric-meta' ? 0 : fabProgress?.stage === 'files' ? 1 : 2}
+                        items={[
+                            {
+                                title: "Fabric Meta",
+                                description: "Check version support",
+                                icon: fabProgress?.stage === 'fabric-meta' ? <LoadingOutlined /> : fabProgress ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : undefined,
+                            },
+                            {
+                                title: "Generate Files",
+                                description: "Build project files",
+                                icon: fabProgress?.stage === 'files' ? <LoadingOutlined /> : fabProgress?.stage === 'zip' ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : undefined,
+                            },
+                            {
+                                title: "Package ZIP",
+                                description: "Build ZIP archive",
+                                icon: fabProgress?.stage === 'zip' ? <LoadingOutlined /> : undefined,
+                            },
+                        ]}
+                    />
+                    <div style={{ color: "#888", fontSize: "13px" }}>
+                        {fabProgress?.label}
+                    </div>
                 </Flex>
             </Modal>
 

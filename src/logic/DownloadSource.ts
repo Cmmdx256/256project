@@ -1,10 +1,11 @@
 /**
  * 256project - DownloadSource.ts
  *
- * Provides three download capabilities:
- *   1. downloadCurrentFile()     - downloads the currently open class as a .java file
- *   2. downloadEntireJarAsZip()  - decompiles the entire JAR and packages it as a .zip
- *   3. downloadGradleProject()   - generates a complete compilable Gradle project as a .zip
+ * Provides four download capabilities:
+ *   1. downloadCurrentFile()       - downloads the currently open class as a .java file
+ *   2. downloadEntireJarAsZip()    - decompiles the entire JAR and packages it as a .zip
+ *   3. downloadGradleProject()     - generates a complete compilable Gradle project as a .zip
+ *   4. downloadFabricWorkspace()   - generates a runnable Fabric Loom workspace as a .zip
  */
 
 import { firstValueFrom } from "rxjs";
@@ -16,6 +17,7 @@ import { decompileClass, setOptions } from "../workers/decompile/client";
 import { DEFAULT_VERSION } from "./vineflower/versions";
 import { classNameFromClassFilePath, type ClassFilePath } from "../utils/Names";
 import { generateGradleProject, type ProjectGenProgressCallback } from "./ProjectGenerator";
+import { generateFabricWorkspace, type FabricWorkspaceProgressCallback } from "./FabricWorkspace";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -258,4 +260,24 @@ export async function downloadGradleProject(
 
     const zipBlob = await generateGradleProject(onProgress, signal);
     triggerDownload(zipBlob, `${version}-src.zip`);
+}
+
+// ─── Fabric Workspace Download ────────────────────────────────────────────────
+
+export type { FabricWorkspaceProgressCallback };
+export { type FabricWorkspaceStage } from "./FabricWorkspace";
+
+/**
+ * Generates a complete Fabric Loom development workspace and downloads it as a ZIP.
+ * The extracted project can be run with: ./gradlew runClient
+ */
+export async function downloadFabricWorkspace(
+    onProgress: FabricWorkspaceProgressCallback,
+    signal?: AbortSignal
+): Promise<void> {
+    const jar = await firstValueFrom(minecraftJar);
+    const version = jar.version;
+
+    const zipBlob = await generateFabricWorkspace(version, onProgress, signal);
+    triggerDownload(zipBlob, `${version}-fabric-workspace.zip`);
 }
