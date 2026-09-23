@@ -1,11 +1,17 @@
 /**
  * 256project — FabricWorkspace.ts
  *
- * Generates a complete, runnable Fabric Loom development workspace for the
- * currently selected Minecraft version.
+ * Generates a complete, runnable Fabric development workspace automatically configured
+ * for ANY Minecraft version from 1.14 up to 26.3+.
  *
- * The output ZIP can be extracted and run with:
- *   ./gradlew runClient
+ * Automatically resolves:
+ *   - Gradle version (9.5.1 for full Java 8 through Java 25 / Java 24 support)
+ *   - Fabric Loom plugin (net.fabricmc.fabric-loom-remap vs net.fabricmc.fabric-loom)
+ *   - Official Mojang mappings (no unpick conflicts)
+ *   - Source set split (1.18+ split client/main vs 1.14-1.17 single merged source set)
+ *   - Target Java bytecode release (Java 8 for 1.14-1.16, 16 for 1.17, 17 for 1.18-1.20.4, 21 for 1.20.5-1.21.x, 25 for 26.x+)
+ *   - Fabric API version matching MC version or major.minor fallback
+ *   - Fabric Loader version (latest stable)
  */
 
 // ─── Progress ────────────────────────────────────────────────────────────────
@@ -16,6 +22,21 @@ export type FabricWorkspaceStage =
     | { stage: 'zip'; label: string };
 
 export type FabricWorkspaceProgressCallback = (progress: FabricWorkspaceStage) => void;
+
+// ─── Version Config ──────────────────────────────────────────────────────────
+
+export interface FabricVersionConfig {
+    mcVersion: string;
+    isUnobfuscated: boolean;
+    hasSplitSources: boolean;
+    javaVersion: number;
+    loomPluginId: string;
+    loomVersion: string;
+    gradleVersion: string;
+    gradleDistributionUrl: string;
+    loaderVersion: string;
+    fabricApiVersion: string;
+}
 
 // ─── Fabric Meta API types ────────────────────────────────────────────────────
 
@@ -38,33 +59,61 @@ async function getJson<T>(url: string): Promise<T> {
     return resp.json() as Promise<T>;
 }
 
-function getJavaVersion(mcVersion: string): number {
+/**
+ * Detects whether a Minecraft version is unobfuscated (e.g. 26.1+ or modern snapshots).
+ */
+export function isMcUnobfuscated(mcVersion: string): boolean {
+    if (mcVersion.startsWith('26.')) return true;
     const parts = mcVersion.split('.').map(Number);
-    if (parts[0] >= 26) return 25; // 26.x unobfuscated snapshots
+    if (parts[0] >= 26) return true;
+    return false;
+}
+
+/**
+ * Resolves the appropriate Java release bytecode target for a Minecraft version.
+ * - 26.x+: Java 25
+ * - 1.20.5 – 1.21.x: Java 21
+ * - 1.18 – 1.20.4: Java 17
+ * - 1.17: Java 16
+ * - 1.14 – 1.16: Java 8
+ */
+export function getJavaVersionForMc(mcVersion: string): number {
+    const parts = mcVersion.split('.').map(Number);
+    if (parts[0] >= 26) return 25;
     if (parts[0] === 1) {
-        const minor = parts[1];
+        const minor = parts[1] ?? 0;
         const patch = parts[2] ?? 0;
         if (minor >= 21) return 21;
-        if (minor === 20 && patch >= 5) return 21; // 1.20.5+ requires Java 21
-        if (minor >= 18) return 17; // 1.18 - 1.20.4 requires Java 17
-        if (minor === 17) return 16; // 1.17 requires Java 16
-        return 8; // 1.14 - 1.16 requires Java 8
+        if (minor === 20 && patch >= 5) return 21;
+        if (minor >= 18) return 17;
+        if (minor === 17) return 16;
+        return 8;
     }
     return 21;
 }
 
-async function fetchFabricVersions(mcVersion: string): Promise<{
-    loaderVersion: string;
-    fabricApiVersion: string;
-    javaVersion: number;
-}> {
-    // 1. Check Fabric support for this MC version
+/**
+ * Whether the Minecraft version supports split client/server source sets (splitEnvironmentSourceSets).
+ * Only Minecraft versions with bundled server jars (1.18+) support split source sets.
+ */
+export function hasSplitSourceSets(mcVersion: string): boolean {
+    if (isMcUnobfuscated(mcVersion)) return true;
+    const parts = mcVersion.split('.').map(Number);
+    if (parts[0] === 1 && (parts[1] ?? 0) < 18) return false;
+    return true;
+}
+
+/**
+ * Resolves all version-dependent parameters for Fabric workspace generation.
+ */
+export async function resolveFabricConfig(mcVersion: string): Promise<FabricVersionConfig> {
+    // 1. Verify Fabric support
     const gameVersions = await getJson<FabricGameVersion[]>(`${FABRIC_META_BASE}/versions/game`);
     const isSupported = gameVersions.some(v => v.version === mcVersion);
     if (!isSupported) {
         throw new Error(
             `Minecraft ${mcVersion} is not yet supported by Fabric Loom.\n` +
-            `Supported versions: ${gameVersions.slice(0, 5).map(v => v.version).join(', ')}...`
+            `Supported versions include: ${gameVersions.slice(0, 5).map(v => v.version).join(', ')}...`
         );
     }
 
@@ -72,30 +121,63 @@ async function fetchFabricVersions(mcVersion: string): Promise<{
     const loaderVersions = await getJson<FabricLoaderVersion[]>(`${FABRIC_META_BASE}/versions/loader`);
     const loaderVersion = (loaderVersions.find(v => v.stable) ?? loaderVersions[0]).version;
 
-    // 3. Fabric API version from Maven metadata (filter by +{mcVersion} suffix)
+    // 3. Fabric API resolution (exact match -> major.minor match -> fallback)
     let fabricApiVersion = '';
     try {
         const resp = await fetch(FABRIC_MAVEN_META);
         if (resp.ok) {
             const xml = await resp.text();
-            const all = [...xml.matchAll(/<version>([^<]+)<\/version>/g)].map(m => m[1]);
-            const matching = all.filter(v => v.endsWith('+' + mcVersion));
-            if (matching.length > 0) {
-                fabricApiVersion = matching[matching.length - 1];
+            const allVersions = [...xml.matchAll(/<version>([^<]+)<\/version>/g)].map(m => m[1]);
+
+            // Exact match: +{mcVersion}
+            const exactMatches = allVersions.filter(v => v.endsWith('+' + mcVersion));
+            if (exactMatches.length > 0) {
+                fabricApiVersion = exactMatches[exactMatches.length - 1];
+            } else {
+                // Major.Minor match: e.g. +1.16 for 1.16.5
+                const parts = mcVersion.split('.');
+                if (parts.length >= 2) {
+                    const majorMinor = `${parts[0]}.${parts[1]}`;
+                    const mmMatches = allVersions.filter(v => v.endsWith('+' + majorMinor));
+                    if (mmMatches.length > 0) {
+                        fabricApiVersion = mmMatches[mmMatches.length - 1];
+                    }
+                }
             }
         }
     } catch {
-        // Fall through to fallback
+        // Fallback below
     }
+
     if (!fabricApiVersion) {
-        fabricApiVersion = `0.116.17+${mcVersion}`;
+        const parts = mcVersion.split('.');
+        const minor = parts[1] ? Number(parts[1]) : 21;
+        if (minor >= 21) fabricApiVersion = `0.116.17+${mcVersion}`;
+        else if (minor === 20) fabricApiVersion = `0.92.12+${mcVersion}`;
+        else if (minor === 19) fabricApiVersion = `0.77.0+${mcVersion}`;
+        else if (minor === 18) fabricApiVersion = `0.77.0+${mcVersion}`;
+        else if (minor === 17) fabricApiVersion = `0.46.1+1.17`;
+        else if (minor === 16) fabricApiVersion = `0.42.0+1.16`;
+        else fabricApiVersion = `0.28.5+1.14`;
         console.warn('[FabricWorkspace] Using fallback Fabric API version:', fabricApiVersion);
     }
 
-    // 4. Target Java version
-    const javaVersion = getJavaVersion(mcVersion);
+    const unobf = isMcUnobfuscated(mcVersion);
+    const split = hasSplitSourceSets(mcVersion);
+    const javaVer = getJavaVersionForMc(mcVersion);
 
-    return { loaderVersion, fabricApiVersion, javaVersion };
+    return {
+        mcVersion,
+        isUnobfuscated: unobf,
+        hasSplitSources: split,
+        javaVersion: javaVer,
+        loomPluginId: unobf ? 'net.fabricmc.fabric-loom' : 'net.fabricmc.fabric-loom-remap',
+        loomVersion: '1.17-SNAPSHOT',
+        gradleVersion: '9.5.1',
+        gradleDistributionUrl: 'https\\://services.gradle.org/distributions/gradle-9.5.1-bin.zip',
+        loaderVersion,
+        fabricApiVersion,
+    };
 }
 
 // ─── CRC32 ───────────────────────────────────────────────────────────────────
@@ -154,7 +236,7 @@ function buildZip(entries: ZipEntry[]): Blob {
         w32(dv, 0, 0x02014b50); w16(dv, 4, 20); w16(dv, 6, 20); w16(dv, 8, 0); w16(dv, 10, 0);
         w16(dv, 12, 0); w16(dv, 14, 0);
         w32(dv, 16, entry.crc); w32(dv, 20, entry.data.length); w32(dv, 24, entry.data.length);
-        w16(dv, 28, entry.name.length); w16(dv, 30, 0); w16(dv, 32, 0); w16(dv, 34, 0); w16(dv, 36, 0);
+        w16(dv, 28, entry.name.length); w16(dv, 30, 0); w16(dv, 32, 0); w16(dv, 34, 0);
         w32(dv, 38, 0);
         w32(dv, 42, entry.offset);
         new Uint8Array(cd, 46).set(entry.name);
@@ -175,9 +257,30 @@ function buildZip(entries: ZipEntry[]): Blob {
 
 // ─── File Templates ──────────────────────────────────────────────────────────
 
-function tplBuildGradle(javaVersion: number): string {
+function tplBuildGradle(cfg: FabricVersionConfig): string {
+    const javaCompat = cfg.javaVersion === 8
+        ? `\tsourceCompatibility = JavaVersion.VERSION_1_8\n\ttargetCompatibility = JavaVersion.VERSION_1_8`
+        : `\tsourceCompatibility = JavaVersion.toVersion(${cfg.javaVersion})\n\ttargetCompatibility = JavaVersion.toVersion(${cfg.javaVersion})`;
+
+    const loomBlock = cfg.hasSplitSources
+        ? `loom {\n\tsplitEnvironmentSourceSets()\n\n\tmods {\n\t\t"examplemod" {\n\t\t\tsourceSet sourceSets.main\n\t\t\tsourceSet sourceSets.client\n\t\t}\n\t}\n}\n`
+        : '';
+
+    const depsBlock = cfg.isUnobfuscated
+        ? `dependencies {
+\tminecraft "com.mojang:minecraft:\${project.minecraft_version}"
+\timplementation "net.fabricmc:fabric-loader:\${project.loader_version}"
+\timplementation "net.fabricmc.fabric-api:fabric-api:\${project.fabric_version}"
+}`
+        : `dependencies {
+\tminecraft "com.mojang:minecraft:\${project.minecraft_version}"
+\tmappings loom.officialMojangMappings()
+\tmodImplementation "net.fabricmc:fabric-loader:\${project.loader_version}"
+\tmodImplementation "net.fabricmc.fabric-api:fabric-api:\${project.fabric_version}"
+}`;
+
     return `plugins {
-\tid 'net.fabricmc.fabric-loom-remap' version "\${project.loom_version}"
+\tid '${cfg.loomPluginId}' version "\${project.loom_version}"
 \tid 'maven-publish'
 }
 
@@ -192,25 +295,8 @@ repositories {
 \t// Add repositories here when depending on other mods.
 }
 
-loom {
-\tsplitEnvironmentSourceSets()
-
-\tmods {
-\t\t"examplemod" {
-\t\t\tsourceSet sourceSets.main
-\t\t\tsourceSet sourceSets.client
-\t\t}
-\t}
-}
-
-dependencies {
-\tminecraft "com.mojang:minecraft:\${project.minecraft_version}"
-\tmappings loom.officialMojangMappings()
-\tmodImplementation "net.fabricmc:fabric-loader:\${project.loader_version}"
-
-\t// Fabric API
-\tmodImplementation "net.fabricmc.fabric-api:fabric-api:\${project.fabric_version}"
-}
+${loomBlock}
+${depsBlock}
 
 processResources {
 \tinputs.property "version", project.mod_version
@@ -220,13 +306,12 @@ processResources {
 }
 
 tasks.withType(JavaCompile).configureEach {
-\tit.options.release = ${javaVersion}
+\tit.options.release = ${cfg.javaVersion}
 }
 
 java {
 \twithSourcesJar()
-\tsourceCompatibility = JavaVersion.toVersion(${javaVersion})
-\ttargetCompatibility = JavaVersion.toVersion(${javaVersion})
+${javaCompat}
 }
 
 jar {
@@ -251,18 +336,17 @@ function tplSettingsGradle(): string {
 `;
 }
 
-function tplGradleProperties(mcVersion: string, loaderVersion: string, fabricApiVersion: string): string {
+function tplGradleProperties(cfg: FabricVersionConfig): string {
     return `# Increase Gradle memory
 org.gradle.jvmargs=-Xmx2G
 org.gradle.parallel=true
 org.gradle.configuration-cache=false
 
 # Fabric Properties
-# Check these on https://fabricmc.net/develop
-minecraft_version=${mcVersion}
-loader_version=${loaderVersion}
-loom_version=1.17-SNAPSHOT
-fabric_version=${fabricApiVersion}
+minecraft_version=${cfg.mcVersion}
+loader_version=${cfg.loaderVersion}
+loom_version=${cfg.loomVersion}
+fabric_version=${cfg.fabricApiVersion}
 
 # Mod Properties
 mod_version=1.0.0
@@ -271,10 +355,10 @@ archives_base_name=examplemod
 `;
 }
 
-function tplGradleWrapperProperties(): string {
+function tplGradleWrapperProperties(cfg: FabricVersionConfig): string {
     return `distributionBase=GRADLE_USER_HOME
 distributionPath=wrapper/dists
-distributionUrl=https\\://services.gradle.org/distributions/gradle-9.5.1-bin.zip
+distributionUrl=${cfg.gradleDistributionUrl}
 networkTimeout=10000
 validateDistributionUrl=true
 zipStoreBase=GRADLE_USER_HOME
@@ -283,26 +367,23 @@ zipStorePath=wrapper/dists
 }
 
 function tplGradlew(): string {
-    // Use regular string to avoid template literal issues with shell $VARNAME syntax
-    const S = '$'; // dollar sign shorthand
+    const S = '$';
     return '#!/bin/sh\n' +
         '#\n' +
         '# Gradle startup script for POSIX generated by the Gradle init task.\n' +
         '#\n' +
         '\n' +
-        '# Attempt to set APP_HOME\n' +
-        '# Resolve links: ' + S + '0 may be a link\n' +
         'app_path=' + S + '0\n' +
         '\n' +
         'while\n' +
-        '    APP_HOME=' + S + '{app_path%"' + S + '{app_path##*/}"}  # leaves a trailing /; empty if no leading path\n' +
+        '    APP_HOME=' + S + '{app_path%"' + S + '{app_path##*/}"}\n' +
         '    [ -h "' + S + 'app_path" ]\n' +
         'do\n' +
         '    ls=' + S + '( ls -ld "' + S + 'app_path" )\n' +
         '    link=' + S + '{ls#*\' -> \'}\n' +
-        '    case ' + S + 'link in             #(\n' +
-        '      /*)   app_path=' + S + 'link ;; #( absolute\n' +
-        '      *)    app_path=' + S + 'APP_HOME' + S + 'link ;; #( relative\n' +
+        '    case ' + S + 'link in\n' +
+        '      /*)   app_path=' + S + 'link ;;\n' +
+        '      *)    app_path=' + S + 'APP_HOME' + S + 'link ;;\n' +
         '    esac\n' +
         'done\n' +
         '\n' +
@@ -311,7 +392,6 @@ function tplGradlew(): string {
         'APP_NAME="Gradle"\n' +
         'APP_BASE_NAME=' + S + '{0##*/}\n' +
         '\n' +
-        '# Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS.\n' +
         'DEFAULT_JVM_OPTS=\'"-Xmx64m" "-Xms64m"\'\n' +
         '\n' +
         'MAX_FD=maximum\n' +
@@ -434,11 +514,7 @@ public class ExampleMod implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        // This code runs as soon as Minecraft is in a mod-load-ready state.
-        // However, some things (like resources) may still be uninitialized.
-        // Proceed with mild caution.
-
-        LOGGER.info("Hello Fabric world!");
+        LOGGER.info("Hello Fabric world from 256project!");
     }
 }
 `;
@@ -452,23 +528,31 @@ import net.fabricmc.api.ClientModInitializer;
 public class ExampleModClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
-        // This entrypoint is suitable for setting up client-specific logic,
-        // such as rendering.
+        // Client-specific initialization logic
     }
 }
 `;
 }
 
-function tplFabricModJson(mcVersion: string, loaderVersion: string, javaVersion: number): string {
-    const parts = mcVersion.split('.');
-    const majorMinor = parts.length >= 2 ? `${parts[0]}.${parts[1]}` : mcVersion;
+function tplFabricModJson(cfg: FabricVersionConfig): string {
+    const parts = cfg.mcVersion.split('.');
+    const majorMinor = parts.length >= 2 ? `${parts[0]}.${parts[1]}` : cfg.mcVersion;
+
+    const mixins = cfg.hasSplitSources
+        ? [
+            "examplemod.mixins.json",
+            { config: "examplemod.client.mixins.json", environment: "client" }
+        ]
+        : [
+            "examplemod.mixins.json"
+        ];
 
     return JSON.stringify({
         schemaVersion: 1,
         id: "examplemod",
         version: "${version}",
         name: "Example Mod",
-        description: "A minimal Fabric mod for Minecraft " + mcVersion,
+        description: "A minimal Fabric mod for Minecraft " + cfg.mcVersion,
         authors: ["Me!"],
         contact: {
             homepage: "https://fabricmc.net/",
@@ -481,39 +565,41 @@ function tplFabricModJson(mcVersion: string, loaderVersion: string, javaVersion:
             main: ["com.example.ExampleMod"],
             client: ["com.example.ExampleModClient"]
         },
-        mixins: [
-            "examplemod.mixins.json",
-            { config: "examplemod.client.mixins.json", environment: "client" }
-        ],
+        mixins,
         depends: {
-            fabricloader: `>=${loaderVersion}`,
+            fabricloader: `>=${cfg.loaderVersion}`,
             minecraft: `~${majorMinor}`,
-            java: `>=${javaVersion}`,
+            java: `>=${cfg.javaVersion}`,
             "fabric-api": "*"
         }
     }, null, 2);
 }
 
-function tplMixinsJson(pkg: string): string {
+function tplMixinsJson(pkg: string, javaVersion: number): string {
     return JSON.stringify({
         required: true,
         minVersion: "0.8",
         package: pkg,
-        compatibilityLevel: "JAVA_21",
+        compatibilityLevel: javaVersion === 8 ? "JAVA_8" : `JAVA_${javaVersion}`,
         mixins: [],
         injectors: { defaultRequire: 1 }
     }, null, 2);
 }
 
-function tplReadme(mcVersion: string, javaVersion: number): string {
-    return `# Minecraft ${mcVersion} Fabric Workspace
+function tplReadme(cfg: FabricVersionConfig): string {
+    return `# Minecraft ${cfg.mcVersion} Fabric Workspace
 
 Generated by [256project](https://cmmdx256.github.io/256project/)
 
-## Requirements
+## Environment Details
 
-- **Java ${javaVersion}+** ([Adoptium](https://adoptium.net/))
-- Internet connection (Gradle will download Minecraft and dependencies on first run)
+- **Minecraft Version:** ${cfg.mcVersion}
+- **Required JDK:** Java ${cfg.javaVersion}+ ([Adoptium](https://adoptium.net/))
+- **Gradle Version:** ${cfg.gradleVersion}
+- **Fabric Loom:** ${cfg.loomPluginId} (${cfg.loomVersion})
+- **Fabric Loader:** ${cfg.loaderVersion}
+- **Fabric API:** ${cfg.fabricApiVersion}
+- **Mappings:** ${cfg.isUnobfuscated ? 'None (Unobfuscated game)' : 'Official Mojang Mappings'}
 
 ## Getting Started
 
@@ -530,19 +616,13 @@ chmod +x gradlew
 gradlew.bat runClient
 \`\`\`
 
-Gradle will automatically download everything on the first run (~500MB).
+Gradle will automatically download everything on the first run.
 
 ### Open in IntelliJ IDEA
 
 1. Open IntelliJ IDEA → **Open** → select this folder
 2. Wait for Gradle to sync
 3. Run \`Minecraft Client\` from the run configurations
-
-### Add your own code
-
-- Edit \`src/main/java/com/example/ExampleMod.java\`
-- Add Mixins in \`src/main/java/com/example/mixin/\`
-- See [Fabric Wiki](https://fabricmc.net/wiki/) for tutorials
 
 ### Build a .jar mod
 
@@ -554,7 +634,7 @@ The output will be at \`build/libs/examplemod-1.0.0.jar\`.
 
 ---
 
-*Workspace generated for Minecraft ${mcVersion} with official Mojang mappings.*
+*Workspace generated for Minecraft ${cfg.mcVersion} with ${cfg.isUnobfuscated ? 'unobfuscated code' : 'official Mojang mappings'}.*
 `;
 }
 
@@ -580,11 +660,11 @@ export async function generateFabricWorkspace(
     onProgress: FabricWorkspaceProgressCallback,
     signal?: AbortSignal
 ): Promise<Blob> {
-    // ── Stage 1: Fetch Fabric meta ────────────────────────────────────────────
-    onProgress({ stage: 'fabric-meta', label: `Checking Fabric support for Minecraft ${mcVersion}…` });
+    // ── Stage 1: Fetch and resolve version-specific config ─────────────────────
+    onProgress({ stage: 'fabric-meta', label: `Configuring environment for Minecraft ${mcVersion}…` });
 
-    const { loaderVersion, fabricApiVersion, javaVersion } = await fetchFabricVersions(mcVersion);
-    console.log('[FabricWorkspace]', { mcVersion, loaderVersion, fabricApiVersion, javaVersion });
+    const cfg = await resolveFabricConfig(mcVersion);
+    console.log('[FabricWorkspace] Resolved config:', cfg);
 
     if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
 
@@ -594,18 +674,28 @@ export async function generateFabricWorkspace(
     const entries: ZipEntry[] = [];
     const off = { v: 0 };
 
-    addText(entries, off, 'build.gradle', tplBuildGradle(javaVersion));
+    addText(entries, off, 'build.gradle', tplBuildGradle(cfg));
     addText(entries, off, 'settings.gradle', tplSettingsGradle());
-    addText(entries, off, 'gradle.properties', tplGradleProperties(mcVersion, loaderVersion, fabricApiVersion));
-    addText(entries, off, 'gradle/wrapper/gradle-wrapper.properties', tplGradleWrapperProperties());
+    addText(entries, off, 'gradle.properties', tplGradleProperties(cfg));
+    addText(entries, off, 'gradle/wrapper/gradle-wrapper.properties', tplGradleWrapperProperties(cfg));
     addText(entries, off, 'gradlew', tplGradlew());
     addText(entries, off, 'gradlew.bat', tplGradlewBat());
-    addText(entries, off, 'src/main/java/com/example/ExampleMod.java', tplExampleModJava());
-    addText(entries, off, 'src/client/java/com/example/ExampleModClient.java', tplExampleModClientJava());
-    addText(entries, off, 'src/main/resources/fabric.mod.json', tplFabricModJson(mcVersion, loaderVersion, javaVersion));
-    addText(entries, off, 'src/main/resources/examplemod.mixins.json', tplMixinsJson('com.example.mixin'));
-    addText(entries, off, 'src/client/resources/examplemod.client.mixins.json', tplMixinsJson('com.example.mixin.client'));
-    addText(entries, off, 'README.md', tplReadme(mcVersion, javaVersion));
+
+    // Source set structure: 1.18+ uses split main/client sources; 1.14-1.17 uses single main source set
+    if (cfg.hasSplitSources) {
+        addText(entries, off, 'src/main/java/com/example/ExampleMod.java', tplExampleModJava());
+        addText(entries, off, 'src/client/java/com/example/ExampleModClient.java', tplExampleModClientJava());
+        addText(entries, off, 'src/main/resources/fabric.mod.json', tplFabricModJson(cfg));
+        addText(entries, off, 'src/main/resources/examplemod.mixins.json', tplMixinsJson('com.example.mixin', cfg.javaVersion));
+        addText(entries, off, 'src/client/resources/examplemod.client.mixins.json', tplMixinsJson('com.example.mixin.client', cfg.javaVersion));
+    } else {
+        addText(entries, off, 'src/main/java/com/example/ExampleMod.java', tplExampleModJava());
+        addText(entries, off, 'src/main/java/com/example/ExampleModClient.java', tplExampleModClientJava());
+        addText(entries, off, 'src/main/resources/fabric.mod.json', tplFabricModJson(cfg));
+        addText(entries, off, 'src/main/resources/examplemod.mixins.json', tplMixinsJson('com.example.mixin', cfg.javaVersion));
+    }
+
+    addText(entries, off, 'README.md', tplReadme(cfg));
 
     // Include gradle-wrapper.jar (served from our own public/ folder)
     try {
