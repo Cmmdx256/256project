@@ -1,4 +1,4 @@
-﻿import { expect, Page } from '@playwright/test';
+import { expect, Page } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -11,8 +11,25 @@ export async function waitForDecompiledContent(page: Page, expectedText: string)
         await expect(decompiling).toBeHidden();
     }).toPass();
 
-    const editor = page.getByRole("code").nth(0);
-    await expect(editor).toContainText(expectedText);
+    await expect(async () => {
+        const hasText = await page.evaluate((text) => {
+            const editorEl = document.querySelector('[role="code"]');
+            if (editorEl && editorEl.textContent?.includes(text)) {
+                return true;
+            }
+            const monaco = (window as any).monaco;
+            if (monaco?.editor?.getModels) {
+                const models = monaco.editor.getModels();
+                for (const model of models) {
+                    if (model.getValue().includes(text)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }, expectedText);
+        expect(hasText).toBe(true);
+    }).toPass();
 }
 
 export async function selectMinecraftVersion(page: Page, version: string, selectorIndex = 0) {

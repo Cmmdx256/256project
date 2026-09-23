@@ -5,8 +5,8 @@ import path from 'path';
 import fs from 'fs';
 
 // https://vite.dev/config/
-export default defineConfig(({ mode }) => {
-  const base = process.env.BASE_URL || (mode === 'production' && !process.env.VERCEL && !process.env.CF_PAGES ? '/256project/' : '/');
+export default defineConfig(() => {
+  const base = process.env.BASE_URL || '/';
 
   return {
     base,
