@@ -16,3 +16,5 @@ bin
 !build/generated/teavm/wasm-gc/
 !build/generated/teavm/wasm-gc/*.wasm
 !build/generated/teavm/wasm-gc/*.js
+!build/libs/
+!build/libs/dummy*.jar
