@@ -114,7 +114,7 @@ export const EmptyState = () => {
 
                 {/* GitHub */}
                 <a
-                    href="https://github.com/256project/256project"
+                    href="https://github.com/cmmdx256/256project"
                     target="_blank" rel="noreferrer"
                     className="p256-github-btn p256-enter-6"
                 >
