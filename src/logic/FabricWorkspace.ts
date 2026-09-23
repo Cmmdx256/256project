@@ -280,7 +280,7 @@ function tplBuildGradle(cfg: FabricVersionConfig): string {
 }`;
 
     return `plugins {
-\tid '${cfg.loomPluginId}' version "\${project.loom_version}"
+\tid '${cfg.loomPluginId}' version "\${loom_version}"
 \tid 'maven-publish'
 }
 
