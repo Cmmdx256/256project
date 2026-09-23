@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock the Settings module
 vi.mock('./Settings', () => ({
@@ -22,8 +22,8 @@ vi.mock('./MinecraftApi', () => ({
     minecraftVersions: { subscribe: vi.fn() }
 }));
 
-// Import the actual parsing function
-import { parsePathToState } from './Permalink';
+// Import the actual parsing and permalink URL functions
+import { parsePathToState, getFilePermalinkUrl, getFullBaseUrl } from './Permalink';
 
 describe('Permalink', () => {
     describe('parsePathToState', () => {
@@ -422,4 +422,38 @@ describe('Permalink', () => {
             });
         });
     });
+
+    describe('getFilePermalinkUrl & getFullBaseUrl', () => {
+        beforeEach(() => {
+            vi.stubGlobal('window', {
+                location: {
+                    origin: 'https://cmmdx256.github.io'
+                }
+            });
+        });
+
+        afterEach(() => {
+            vi.unstubAllGlobals();
+        });
+
+        it('should construct full base URL including origin and base path', () => {
+            const fullBase = getFullBaseUrl();
+            expect(fullBase).toContain('https://cmmdx256.github.io');
+        });
+
+        it('should dynamically generate permalink using current origin and version', () => {
+            const url = getFilePermalinkUrl('net/minecraft/world/entity/Entity.class', '1.21.1');
+            expect(url).toContain('https://cmmdx256.github.io');
+            expect(url).toContain('1.21.1');
+            expect(url).toContain('net/minecraft/world/entity/Entity');
+            expect(url.endsWith('.class')).toBe(false);
+            expect(url).not.toContain('256project.dev');
+        });
+
+        it('should return empty string if no minecraft version is available', () => {
+            const url = getFilePermalinkUrl('net/minecraft/world/entity/Entity.class', '');
+            expect(url).toBe('');
+        });
+    });
 });
+

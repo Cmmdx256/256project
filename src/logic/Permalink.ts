@@ -1,7 +1,7 @@
 import { combineLatest } from "rxjs";
 import { resetPermalinkAffectingSettings, supportsPermalinking } from "./Settings";
 import { diffLeftSelectedMinecraftVersion, diffSelectionSide, diffView, vineflowerVersion, selectedFile, selectedLines, selectedMinecraftVersion } from "./State";
-import { vineflowerVersionToPermalinkVersion } from "./vineflower/versions";
+import { DEFAULT_VERSION, vineflowerVersionToPermalinkVersion } from "./vineflower/versions";
 import { toClassFilePath, withoutClassExtension, type ClassFilePath } from "../utils/Names";
 
 export interface State {
@@ -97,9 +97,36 @@ export const parsePathToState = (path: string): State | null => {
     };
 };
 
-const getBaseUrl = (): string => {
+export const getBaseUrl = (): string => {
     const base = import.meta.env.BASE_URL || '/';
     return base.endsWith('/') ? base : base + '/';
+};
+
+export const getFullBaseUrl = (): string => {
+    if (typeof window === 'undefined') return '/';
+    const origin = window.location.origin.replace(/\/+$/, '');
+    const base = getBaseUrl();
+    const cleanBase = base.startsWith('/') ? base : '/' + base;
+    return `${origin}${cleanBase}`;
+};
+
+export const getFilePermalinkUrl = (
+    filePath: string,
+    minecraftVersion?: string
+): string => {
+    if (typeof window === 'undefined') return '';
+    const fullBase = getFullBaseUrl();
+    const vfVer = vineflowerVersionToPermalinkVersion(vineflowerVersion?.value ?? DEFAULT_VERSION);
+    const linkPath = withoutClassExtension(filePath);
+    const mcVer = minecraftVersion ?? selectedMinecraftVersion?.value;
+
+    if (!mcVer) return '';
+
+    if (diffView?.value && diffLeftSelectedMinecraftVersion?.value) {
+        return `${fullBase}${vfVer}/diff/${encodeURIComponent(diffLeftSelectedMinecraftVersion.value)}/${encodeURIComponent(mcVer)}/${linkPath}`;
+    }
+
+    return `${fullBase}${vfVer}/${encodeURIComponent(mcVer)}/${linkPath}`;
 };
 
 export const getInitialState = (): State => {
