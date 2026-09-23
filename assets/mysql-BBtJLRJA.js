@@ -1,0 +1,1 @@
+import{Cn as e,Sn as t}from"./monaco-AWAr4d_A.js";export{t as conf,e as language};

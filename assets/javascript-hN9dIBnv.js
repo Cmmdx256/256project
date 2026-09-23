@@ -1,0 +1,1 @@
+import{Kn as e,qn as t}from"./monaco-AWAr4d_A.js";export{e as conf,t as language};
