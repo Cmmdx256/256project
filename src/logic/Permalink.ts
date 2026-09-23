@@ -97,15 +97,28 @@ export const parsePathToState = (path: string): State | null => {
     };
 };
 
+const getBaseUrl = (): string => {
+    const base = import.meta.env.BASE_URL || '/';
+    return base.endsWith('/') ? base : base + '/';
+};
+
 export const getInitialState = (): State => {
-    const pathname = window.location.pathname;
+    const rawPathname = window.location.pathname;
     const hash = window.location.hash;
+    const base = getBaseUrl();
 
-    const newStyle = pathname !== '/' && pathname !== '';
+    let pathname = rawPathname;
+    if (base !== '/' && pathname.startsWith(base)) {
+        pathname = pathname.slice(base.length);
+    } else if (pathname.startsWith('/')) {
+        pathname = pathname.slice(1);
+    }
 
-    // Use pathname if it's not just "/" (new style), otherwise use hash (old style)
+    const newStyle = pathname !== '' && pathname !== '/';
+
+    // Use pathname if it's not just "/" or empty (new style), otherwise use hash (old style)
     let path = newStyle
-        ? pathname.slice(1) // Remove leading /
+        ? pathname
         : (hash.startsWith('#/') ? hash.slice(2) : (hash.startsWith('#') ? hash.slice(1) : ''));
 
     // For new style (pathname-based), append hash if it contains line number
@@ -148,10 +161,12 @@ if (typeof window !== "undefined") {
             diffSelectionSide,
             vineflowerVersion
         ]) => {
+            const base = getBaseUrl();
+
             if (!file && !diffView) {
                 document.title = "256project";
                 window.location.hash = '';
-                window.history.replaceState({}, '', '/');
+                window.history.replaceState({}, '', base);
                 return;
             }
 
@@ -164,11 +179,11 @@ if (typeof window !== "undefined") {
 
             if (!supported) {
                 window.location.hash = '';
-                window.history.replaceState({}, '', '/');
+                window.history.replaceState({}, '', base);
                 return;
             }
 
-            let url = `/${vineflowerVersionToPermalinkVersion(vineflowerVersion)}/`;
+            let url = `${base}${vineflowerVersionToPermalinkVersion(vineflowerVersion)}/`;
 
             if (diffView) {
                 url += `diff/${diffLeftMinecraftVersion}/${minecraftVersion}`;

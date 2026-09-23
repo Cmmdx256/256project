@@ -34,7 +34,7 @@ export const EmptyState = () => {
     return (
         <div className="p256-hero">
             {/* ── Background image with gradient overlay ── */}
-            <div className="p256-hero-bg" />
+            <div className="p256-hero-bg" style={{ backgroundImage: `url("${import.meta.env.BASE_URL}mc-bg.jpg")` }} />
 
             {/* ── Content (slides up from bottom) ── */}
             <div className="p256-hero-content">
@@ -42,7 +42,7 @@ export const EmptyState = () => {
                 {/* Logo + Title */}
                 <div className="p256-enter-1" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
                     <img
-                        src="/256project_favicon.svg"
+                        src={`${import.meta.env.BASE_URL}256project_favicon.svg`}
                         alt="256project"
                         className="p256-logo-glow"
                         style={{ width: 72, height: 72 }}
