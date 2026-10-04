@@ -26,26 +26,6 @@ const features = [
 export const EmptyState = () => {
     const outerClasses = useObservable(classesList);
     const bgRef = useRef<HTMLDivElement>(null);
-    const githubWrapRef = useRef<HTMLSpanElement>(null);
-
-    // Magnetic hover for GitHub button — lightweight, no deps
-    React.useEffect(() => {
-        const el = githubWrapRef.current;
-        if (!el || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-        const onMove = (e: MouseEvent) => {
-            const rect = el.getBoundingClientRect();
-            const cx = (e.clientX - rect.left) / rect.width - 0.5;
-            const cy = (e.clientY - rect.top) / rect.height - 0.5;
-            el.style.transform = `translate3d(${cx * 10}px, ${cy * 8}px, 0)`;
-        };
-        const onLeave = () => { el.style.transform = "translate3d(0,0,0)"; };
-        const parent = el.parentElement;
-        // listen on hero so effect feels larger
-        const hero = document.querySelector(".p256-hero") as HTMLElement | null;
-        hero?.addEventListener("mousemove", onMove);
-        hero?.addEventListener("mouseleave", onLeave);
-        return () => { hero?.removeEventListener("mousemove", onMove); hero?.removeEventListener("mouseleave", onLeave); };
-    }, []);
 
     const openRandomClass = () => {
         if (outerClasses && outerClasses.length > 0) {
@@ -155,18 +135,16 @@ export const EmptyState = () => {
                     </div>
                 </Reveal>
 
-                {/* GitHub */}
+                {/* GitHub — pure CSS hover, mousemove ile oynamaz (jitter yok) */}
                 <Reveal delayMs={320}>
-                    <span ref={githubWrapRef} className="p256-magnetic-wrap" id="p256-github-wrap" style={{ transition: "transform 0.22s cubic-bezier(0.22,1,0.36,1)", willChange: "transform", display: "inline-flex" }}>
-                        <a
-                            href="https://github.com/cmmdx256/256project"
-                            target="_blank" rel="noreferrer"
-                            className="p256-github-btn"
-                        >
-                            <GithubOutlined style={{ fontSize: 18 }} />
-                            Star on GitHub
-                        </a>
-                    </span>
+                    <a
+                        href="https://github.com/cmmdx256/256project"
+                        target="_blank" rel="noreferrer"
+                        className="p256-github-btn"
+                    >
+                        <GithubOutlined style={{ fontSize: 18 }} />
+                        Star on GitHub
+                    </a>
                 </Reveal>
             </div>
         </div>

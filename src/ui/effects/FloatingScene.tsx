@@ -21,9 +21,9 @@ const cubes: Cube[] = [
 ];
 
 /**
- * Decorative 3D floating layer: blurred gradient orbs + small glass cubes
- * that drift with CSS 3D transforms. Mouse parallax is applied via inline
- * transform so it stays cheap (only compositor).
+ * Decorative 3D floating layer: blurred gradient orbs + small glass cubes.
+ * Parallax is applied to WRAPPERS only — inner cubes keep their float3D keyframes intact.
+ * rAF + lerp so mousemove never jitters or overrides CSS animations.
  */
 export const FloatingScene = () => {
     const ref = useRef<HTMLDivElement>(null);
@@ -31,33 +31,45 @@ export const FloatingScene = () => {
     useEffect(() => {
         const el = ref.current;
         if (!el) return;
-        const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        if (prefersReduced) return;
+        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+        let raf: number | null = null;
+        let curX = 0, curY = 0;
+        let tgtX = 0, tgtY = 0;
+
+        const tick = () => {
+            raf = null;
+            curX += (tgtX - curX) * 0.10;
+            curY += (tgtY - curY) * 0.10;
+            if (Math.abs(tgtX - curX) < 0.05) curX = tgtX;
+            if (Math.abs(tgtY - curY) < 0.05) curY = tgtY;
+            const wraps = el.querySelectorAll<HTMLElement>("[data-parallax-wrap]");
+            wraps.forEach((w) => {
+                const depth = Number(w.dataset.depth || "1");
+                w.style.transform = `translate3d(${curX * depth}px, ${curY * depth}px, 0)`;
+            });
+            if (curX !== tgtX || curY !== tgtY) raf = requestAnimationFrame(tick);
+        };
+        const schedule = () => { if (raf == null) raf = requestAnimationFrame(tick); };
 
         const onMove = (e: MouseEvent) => {
             const rect = el.getBoundingClientRect();
             const cx = (e.clientX - rect.left) / rect.width - 0.5;
             const cy = (e.clientY - rect.top) / rect.height - 0.5;
-            // tiny parallax — keep it subtle
-            el.style.setProperty("--mx", String(cx));
-            el.style.setProperty("--my", String(cy));
-            const cubesEls = el.querySelectorAll<HTMLElement>("[data-parallax]");
-            cubesEls.forEach((n) => {
-                const depth = Number(n.dataset.depth || "1");
-                const tx = cx * depth * 18;
-                const ty = cy * depth * 14;
-                n.style.transform = `translate3d(${tx}px, ${ty}px, 0)`;
-            });
+            tgtX = cx * 14;
+            tgtY = cy * 10;
+            schedule();
         };
-        const onLeave = () => {
-            const cubesEls = el.querySelectorAll<HTMLElement>("[data-parallax]");
-            cubesEls.forEach((n) => { n.style.transform = "translate3d(0,0,0)"; });
-        };
-        el.addEventListener("mousemove", onMove);
-        el.addEventListener("mouseleave", onLeave);
+        const onLeave = () => { tgtX = 0; tgtY = 0; schedule(); };
+
+        const hero = el.parentElement as HTMLElement | null;
+        const target = hero ?? el;
+        target.addEventListener("mousemove", onMove);
+        target.addEventListener("mouseleave", onLeave);
         return () => {
-            el.removeEventListener("mousemove", onMove);
-            el.removeEventListener("mouseleave", onLeave);
+            target.removeEventListener("mousemove", onMove);
+            target.removeEventListener("mouseleave", onLeave);
+            if (raf != null) cancelAnimationFrame(raf);
         };
     }, []);
 
@@ -83,22 +95,26 @@ export const FloatingScene = () => {
             {cubes.map((c, i) => (
                 <div
                     key={`cube-${i}`}
-                    data-parallax
-                    data-depth={String(0.6 + (i % 3) * 0.45)}
-                    className={`p256-cube${c.alt ? " p256-cube-alt" : ""}`}
-                    style={
-                        {
-                            left: c.left,
-                            top: c.top,
-                            width: c.size,
-                            height: c.size,
-                            animationDelay: c.delay,
-                            opacity: 0.92,
-                            transition: "transform 0.45s cubic-bezier(0.16,1,0.3,1)",
-                            ["--dur" as unknown as string]: c.dur,
-                        } as React.CSSProperties
-                    }
-                />
+                    data-parallax-wrap
+                    data-depth={String(0.7 + (i % 3) * 0.4)}
+                    className="p256-cube-wrap"
+                    style={{
+                        left: c.left,
+                        top: c.top,
+                        width: c.size,
+                        height: c.size,
+                    } as React.CSSProperties}
+                >
+                    <div
+                        className={`p256-cube${c.alt ? " p256-cube-alt" : ""}`}
+                        style={
+                            {
+                                animationDelay: c.delay,
+                                ["--dur" as unknown as string]: c.dur,
+                            } as React.CSSProperties
+                        }
+                    />
+                </div>
             ))}
         </div>
     );
