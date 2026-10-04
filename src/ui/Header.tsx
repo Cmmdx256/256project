@@ -9,8 +9,11 @@ const Header = () => {
     return (
         <div className="p256-header">
             <Flex align="center" gap={6} wrap={false} style={{ width: "100%", minWidth: 0, overflowX: "auto", overflowY: "hidden" }}>
-                {/* Logo */}
-                <span className="p256-header-logo" style={{ flexShrink: 0 }}>256</span>
+                {/* Logo — 3D */}
+                <span className="p256-header-logo" style={{ flexShrink: 0 }}>
+                    <span className="p256-header-logo-dot" aria-hidden />
+                    256
+                </span>
 
                 {/* Controls — shrink-wrap, don't let them overlap */}
                 <Flex align="center" gap={6} wrap={false} style={{ flex: "0 0 auto" }}>

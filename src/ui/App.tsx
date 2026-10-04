@@ -14,6 +14,7 @@ import Modals from './Modals.tsx';
 import { EmptyState } from './EmptyState.tsx';
 import { CodeTab, InheritanceViewTab } from '../logic/tabs';
 import { InheritanceView } from './inheritance/InheritanceView.tsx';
+import { LoadingScreen } from './LoadingScreen.tsx';
 
 
 const App = () => {
@@ -40,6 +41,7 @@ const App = () => {
                 },
             }}
         >
+            <LoadingScreen />
             <Modals />
             {enableDiff ? <DiffView /> : isSmall ? <MobileApp /> : <LargeApp />}
         </ConfigProvider>

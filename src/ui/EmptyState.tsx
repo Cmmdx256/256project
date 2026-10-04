@@ -1,15 +1,18 @@
-import React, { useEffect, useRef } from "react";
+import React, { useRef } from "react";
 import {
     GithubOutlined, SearchOutlined, LinkOutlined,
     BranchesOutlined, CopyOutlined, CodeOutlined, AimOutlined
 } from '@ant-design/icons';
-import { Typography, theme } from 'antd';
+import { Typography } from 'antd';
 import { classesList } from "../logic/JarFile";
 import { openCodeTab } from "../logic/tabs";
 import { useObservable } from "../utils/UseObservable";
+import { FloatingScene } from "./effects/FloatingScene";
+import { Tilt } from "./effects/Tilt";
+import { Reveal } from "./effects/Reveal";
+import { ParallaxBg } from "./effects/ParallaxBg";
 
 const { Paragraph } = Typography;
-const { useToken } = theme;
 
 const features = [
     { icon: <LinkOutlined style={{ fontSize: "15px" }} />, color: "#a78bfa", title: "Version Comparison", description: "Select \"Compare\" to diff two versions side by side" },
@@ -21,8 +24,28 @@ const features = [
 ];
 
 export const EmptyState = () => {
-    const { token } = useToken();
     const outerClasses = useObservable(classesList);
+    const bgRef = useRef<HTMLDivElement>(null);
+    const githubWrapRef = useRef<HTMLSpanElement>(null);
+
+    // Magnetic hover for GitHub button — lightweight, no deps
+    React.useEffect(() => {
+        const el = githubWrapRef.current;
+        if (!el || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        const onMove = (e: MouseEvent) => {
+            const rect = el.getBoundingClientRect();
+            const cx = (e.clientX - rect.left) / rect.width - 0.5;
+            const cy = (e.clientY - rect.top) / rect.height - 0.5;
+            el.style.transform = `translate3d(${cx * 10}px, ${cy * 8}px, 0)`;
+        };
+        const onLeave = () => { el.style.transform = "translate3d(0,0,0)"; };
+        const parent = el.parentElement;
+        // listen on hero so effect feels larger
+        const hero = document.querySelector(".p256-hero") as HTMLElement | null;
+        hero?.addEventListener("mousemove", onMove);
+        hero?.addEventListener("mouseleave", onLeave);
+        return () => { hero?.removeEventListener("mousemove", onMove); hero?.removeEventListener("mouseleave", onLeave); };
+    }, []);
 
     const openRandomClass = () => {
         if (outerClasses && outerClasses.length > 0) {
@@ -32,73 +55,93 @@ export const EmptyState = () => {
     };
 
     return (
-        <div className="p256-hero">
-            {/* ── Background image with gradient overlay ── */}
-            <div className="p256-hero-bg" style={{ backgroundImage: `url("${import.meta.env.BASE_URL}mc-bg.jpg")` }} />
+        <div className="p256-hero p256-perspective">
+            {/* Background with parallax */}
+            <div ref={bgRef} className="p256-hero-bg" style={{ backgroundImage: `url("${import.meta.env.BASE_URL}mc-bg.jpg")` }} />
+            <ParallaxBg bgRef={bgRef} />
 
-            {/* ── Content (slides up from bottom) ── */}
+            {/* Floating 3D orbs + cubes */}
+            <FloatingScene />
+
+            {/* Content */}
             <div className="p256-hero-content">
 
-                {/* Logo + Title */}
-                <div className="p256-enter-1" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
-                    <img
-                        src={`${import.meta.env.BASE_URL}256project_favicon.svg`}
-                        alt="256project"
-                        className="p256-logo-glow"
-                        style={{ width: 72, height: 72 }}
-                    />
-                    <h1 className="p256-gradient-title">
-                        Minecraft Source Explorer
-                    </h1>
-                </div>
+                {/* Logo — 3D floating */}
+                <Reveal delayMs={40}>
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
+                        <Tilt max={10} scale={1.04}>
+                            <div className="p256-logo-3d">
+                                <img
+                                    src={`${import.meta.env.BASE_URL}256project_favicon.svg`}
+                                    alt="256project"
+                                    className="p256-logo-glow"
+                                    style={{ width: 72, height: 72, borderRadius: 14 }}
+                                />
+                            </div>
+                        </Tilt>
+                        <div className="p256-gradient-title-wrap">
+                            <h1 className="p256-gradient-title">
+                                Minecraft Source Explorer
+                            </h1>
+                        </div>
+                    </div>
+                </Reveal>
 
                 {/* Subtitle */}
-                <Paragraph className="p256-enter-2" style={{
-                    fontSize: 14, marginBottom: 0,
-                    color: "rgba(255,255,255,0.65)",
-                    textAlign: "center", fontWeight: 500, maxWidth: 460,
-                }}>
-                    Browser-based decompiled Minecraft Java Edition source viewer.
-                    No server. No installs. Everything runs in your browser.
-                </Paragraph>
+                <Reveal delayMs={90}>
+                    <Paragraph style={{
+                        fontSize: 14, marginBottom: 0,
+                        color: "rgba(255,255,255,0.65)",
+                        textAlign: "center", fontWeight: 500, maxWidth: 460,
+                    }}>
+                        Browser-based decompiled Minecraft Java Edition source viewer.
+                        No server. No installs. Everything runs in your browser.
+                    </Paragraph>
+                </Reveal>
 
                 {/* CTA */}
-                <p className="p256-enter-3" style={{
-                    fontSize: 13, margin: 0,
-                    color: "rgba(255,255,255,0.4)",
-                    textAlign: "center",
-                }}>
-                    Pick a file from the left panel, or{" "}
-                    <span className="p256-random-link" onClick={openRandomClass}>
-                        open a random class
-                    </span>
-                </p>
+                <Reveal delayMs={140}>
+                    <p style={{
+                        fontSize: 13, margin: 0,
+                        color: "rgba(255,255,255,0.45)",
+                        textAlign: "center",
+                    }}>
+                        Pick a file from the left panel, or{" "}
+                        <span className="p256-random-link" onClick={openRandomClass}>
+                            open a random class
+                        </span>
+                    </p>
+                </Reveal>
 
-                {/* How It Works */}
-                <div className="p256-howit-card p256-enter-4">
-                    <div className="p256-section-label">How It Works</div>
-                    <ul style={{ margin: 0, paddingLeft: '1.25rem', lineHeight: 1.9, fontSize: 13, color: "rgba(255,255,255,0.6)" }}>
-                        <li>Minecraft JAR downloaded directly from Mojang's servers to your device</li>
-                        <li>Decompilation happens entirely in your browser via WebAssembly</li>
-                        <li>No Minecraft code is redistributed by this website</li>
-                        <li>Powered by{" "}
-                            <a href="https://github.com/Vineflower/vineflower" target="_blank" rel="noreferrer" style={{ color: 'var(--p256-accent)' }}>Vineflower</a>
-                            {" "}via{" "}
-                            <a href="https://www.npmjs.com/package/@run-slicer/vf" target="_blank" rel="noreferrer" style={{ color: 'var(--p256-accent)' }}>@run-slicer/vf</a>
-                        </li>
-                    </ul>
-                </div>
+                {/* How It Works — tilt on hover */}
+                <Reveal delayMs={180} style={{ width: "100%" }}>
+                    <Tilt max={5} scale={1.01} className="p256-tilt" style={{ width: "100%" }}>
+                        <div className="p256-howit-card">
+                            <div className="p256-section-label">How It Works</div>
+                            <ul style={{ margin: 0, paddingLeft: '1.25rem', lineHeight: 1.9, fontSize: 13, color: "rgba(255,255,255,0.6)" }}>
+                                <li>Minecraft JAR downloaded directly from Mojang's servers to your device</li>
+                                <li>Decompilation happens entirely in your browser via WebAssembly</li>
+                                <li>No Minecraft code is redistributed by this website</li>
+                                <li>Powered by{" "}
+                                    <a href="https://github.com/Vineflower/vineflower" target="_blank" rel="noreferrer" style={{ color: 'var(--p256-accent)' }}>Vineflower</a>
+                                    {" "}via{" "}
+                                    <a href="https://www.npmjs.com/package/@run-slicer/vf" target="_blank" rel="noreferrer" style={{ color: 'var(--p256-accent)' }}>@run-slicer/vf</a>
+                                </li>
+                            </ul>
+                        </div>
+                    </Tilt>
+                </Reveal>
 
-                {/* Features */}
-                <div className="p256-enter-5" style={{ width: '100%' }}>
+                {/* Features — staggered 3D */}
+                <Reveal delayMs={220} style={{ width: "100%" }}>
                     <div className="p256-section-label">Features</div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
+                    <div className="p256-feature-grid">
                         {features.map((f, i) => (
                             <div
                                 key={i}
                                 className="p256-feature-card"
                                 title={f.description}
-                                style={{ animationDelay: `${0.5 + i * 0.06}s` }}
+                                style={{ animationDelay: `${0.45 + i * 0.06}s` }}
                             >
                                 <div className="p256-feature-icon" style={{ background: `${f.color}18` }}>
                                     <span style={{ color: f.color }}>{f.icon}</span>
@@ -110,17 +153,21 @@ export const EmptyState = () => {
                             </div>
                         ))}
                     </div>
-                </div>
+                </Reveal>
 
                 {/* GitHub */}
-                <a
-                    href="https://github.com/cmmdx256/256project"
-                    target="_blank" rel="noreferrer"
-                    className="p256-github-btn p256-enter-6"
-                >
-                    <GithubOutlined style={{ fontSize: 18 }} />
-                    Star on GitHub
-                </a>
+                <Reveal delayMs={320}>
+                    <span ref={githubWrapRef} className="p256-magnetic-wrap" id="p256-github-wrap" style={{ transition: "transform 0.22s cubic-bezier(0.22,1,0.36,1)", willChange: "transform", display: "inline-flex" }}>
+                        <a
+                            href="https://github.com/cmmdx256/256project"
+                            target="_blank" rel="noreferrer"
+                            className="p256-github-btn"
+                        >
+                            <GithubOutlined style={{ fontSize: 18 }} />
+                            Star on GitHub
+                        </a>
+                    </span>
+                </Reveal>
             </div>
         </div>
     );
